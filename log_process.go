@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"io"
 	"regexp"
-	"log"
 	"strconv"
 	"net/url"
 	"github.com/influxdata/influxdb/client/v2"
@@ -15,6 +14,7 @@ import (
 	"net/http"
 	"runtime"
 	"encoding/json"
+	"github.com/sirupsen/logrus"
 )
 
 type Reader interface {
@@ -30,8 +30,6 @@ type LogProcess struct {
 	wc chan *Message //从写入模块到解析模块进行通信
 	read Reader
 	write Writer
-	//path string
-	//influxDBDsn string
 }
 
 type ReadFromFile struct {
@@ -48,20 +46,6 @@ type Message struct {
 	Path, Method, Scheme, Status string
 	UpstreamTime, RequestTime float64
 }
-
-//type SystemInfo struct {
-//	RunTime string `json:"runTime"` //系统运行总时间
-//	ErrNum int `json:"errNum"` //错误数
-//	ReadHandleLine int `json:"readHandleLine"` //读取日志处理行数
-//	ProcessHandleLine int `json:"processHandleLine"` //中间件处理条数
-//	WriteHandleLine int `json:"writeHandleLine"` // 写入influxdb条数
-//	ReadChanLen int `json:"readChanLen"` //readChan 长度
-//	WriteChanLen int `json:"writeChanLen"`  //writeChan 长度
-//	ReadTps float64 `json:"readTps"`  //系统吞吐量
-//	ProcessTps float64 `json:"processTps"`  //系统吞吐量
-//	WriteTps float64 `json:"writeTps"`  //系统吞吐量
-//	TypeMonitorChanLen int `json:"typeMonitorChanLen"`  //监控队列的长度
-//}
 
 type SystemInfo struct {
 	GOOS string `json:"运行平台"`
@@ -108,7 +92,7 @@ const (
 	ProcessGoroutineNum = 20
 	WriteGoroutineNum = 20
 )
-
+var log = logrus.New()
 var TypeMonitorChan = make(chan byte, TypeMonitorChanCap)
 
 type Monitor struct {
@@ -120,7 +104,7 @@ type Monitor struct {
 }
 
 func (m *Monitor) start(lp *LogProcess) {
-	// 消费系统监控数据
+
 	go func() {
 		for n := range TypeMonitorChan {
 			switch n {
@@ -205,11 +189,10 @@ func (m *Monitor) start(lp *LogProcess) {
 }
 
 func (r *ReadFromFile) Read(rc chan []byte) {
-	// 1打开文件
-	//fmt.Println("Read:")
 	f, err := os.Open(r.path)
 	if err != nil {
 		TypeMonitorChan <- TypeErrNum
+		log.Errorf("open file error:%s",err.Error())
 		panic(fmt.Sprintf("open file error:%s", err.Error()))
 	}
 	//把文件的字符指针移动到末尾
@@ -221,22 +204,19 @@ func (r *ReadFromFile) Read(rc chan []byte) {
 		line, err := rd.ReadBytes('\n')
 		if err == io.EOF {
 			time.Sleep(500 * time.Millisecond)
-			//log.Println("ReadBytes io EOF")
 			continue
 		} else if err != nil {
 			TypeMonitorChan <- TypeErrNum
+			log.Errorf("ReadBytes error:%s",err.Error())
 			panic(fmt.Sprintf("ReadBytes error:%s", err.Error()))
 		}
-		//fmt.Println("Read Sucess")
 		TypeMonitorChan <- TypeReadHandleLine
 		rc <- line[:len(line)-1]
 	}
 }
 
 func (w *WriteToInfluxDB) Write(wc chan *Message) {
-	//fmt.Println("Write:")
 	infSli := strings.Split(w.influxDBDsn, "@")
-
 	// 创建一个 influxdb客户端，配置http参数
 	c, err := client.NewHTTPClient(client.HTTPConfig{
 		Addr: infSli[0],
@@ -244,14 +224,10 @@ func (w *WriteToInfluxDB) Write(wc chan *Message) {
 		Password: infSli[2],
 	})
 
-	//c, err := client.NewHTTPClient(client.HTTPConfig{
-	//	Addr:"http://39.107.77.94:8086",
-	//	Username:"yq",
-	//	Password:"07030501310",
-	//})
 	if err != nil {
 		TypeMonitorChan <- TypeErrNum
-		log.Fatal(err)
+		log.Errorf("Create influxdb HTTPClient error:%s", err.Error())
+		//log.Fatal(err)
 	}
 
 	for v := range wc {
@@ -263,7 +239,8 @@ func (w *WriteToInfluxDB) Write(wc chan *Message) {
 		})
 		if err != nil {
 			TypeMonitorChan <- TypeErrNum
-			log.Fatalln(err)
+			log.Errorf("influxdb NewBatchPoints error:%s", err.Error())
+			//log.Fatalln(err)
 		}
 		tags := map[string]string{"Path": v.Path, "Method": v.Method, "Scheme":v.Scheme, "Status":v.Status}
 		fields := map[string]interface{}{
@@ -275,25 +252,20 @@ func (w *WriteToInfluxDB) Write(wc chan *Message) {
 		pt, err := client.NewPoint("nginx_log", tags, fields, v.TimeLocal)
 		if err != nil {
 			TypeMonitorChan <- TypeErrNum
-			log.Fatal(err)
+			log.Errorf("NewPoint nginx_log error:%s",err.Error())
+			//log.Fatal(err)
 		}
 		bp.AddPoint(pt)
 		if err := c.Write(bp); err != nil {
 			TypeMonitorChan <- TypeErrNum
-			log.Fatal(err)
+			log.Errorf("Write bp error:%s", err.Error())
+			//log.Fatal(err)
 		}
 		TypeMonitorChan <- TypeWriteHandleLine
-		//fmt.Println("Write Sucess")
+
 	}
 }
 
-//使用指针做接受者可以提升在大结构体时调用方法时进行对象拷贝
-//func (l *LogProcess) ReadFromFile() {
-//	//读取模块
-//	line := "message"
-//	l.rc <- line
-//
-//}
 
 func (l *LogProcess) Process() {
 	//解析模块
@@ -314,31 +286,29 @@ func (l *LogProcess) Process() {
 		ret := r.FindStringSubmatch(string(v))
 		if len(ret) != 14 {
 			TypeMonitorChan <- TypeErrNum
-			log.Println("FindStringSubmatch fail:", string(v))
+			log.Errorln("FindStringSubmatch fail:", string(v))
 			continue
 		}
 		message := &Message{}
-		// 格式时间 时间必须是下面的值
 		t, err := time.ParseInLocation("02/Jan/2006:15:04:05 +0000", ret[4], loc)
 		if err != nil {
 			TypeMonitorChan <- TypeErrNum
-			log.Println("ParseInLocation fail:", err.Error(), ret[4])
+			log.Errorln("ParseInLocation fail:", err.Error(), ret[4])
 		}
 		message.TimeLocal = t
 		byteSent, _ := strconv.Atoi(ret[8])
 		message.BytesSent = byteSent
-		// GET /foo?query=t HTTP/1.0
 		reqSli := strings.Split(ret[6]," ")
 		if len(reqSli) != 3 {
 			TypeMonitorChan <- TypeErrNum
-			log.Println("strings.Split fail", ret[6])
+			log.Errorln("strings.Split fail", ret[6])
 			continue
 		}
 		message.Method = reqSli[0]
 		u, err := url.Parse(reqSli[1])
 		if err != nil {
 			TypeMonitorChan <- TypeErrNum
-			log.Println("url parse fail:", err.Error())
+			log.Errorln("url parse fail:", err.Error())
 			continue
 		}
 		message.Path = u.Path
@@ -349,27 +319,22 @@ func (l *LogProcess) Process() {
 		message.UpstreamTime = upstreamTime
 		message.RequestTime = requestTime
 		TypeMonitorChan <- TypeProcessHandleLine
-		//fmt.Println("message:",*message)
 		l.wc <- message
-		//l.wc <- strings.ToUpper(string(v))
 	}
-	//data := <- l.rc
-	//fmt.Println("Process:")
-	//l.wc <- strings.ToUpper(string(data))
 }
 
-//func (l *LogProcess) WriteToInfluxDB() {
-//	//写入模块
-//	fmt.Println(<-l.wc)
-//}
+
 func initEnv() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
+	log.Out = os.Stdout
+	log.SetLevel( logrus.DebugLevel )
 }
 
 func main () {
 	initEnv()
-	var path, influxDsn string
-	flag.StringVar(&path, "path", "./access.log","read config file")
+	var path, influxDsn,logPath string
+	flag.StringVar(&path, "nginx_log_path", "./access.log","read config file")
+	flag.StringVar(&logPath, "log_path","./log_monitor","log file path")
 	flag.StringVar(&influxDsn, "influxDsn", "http://39.107.77.94:8086@yq@07030501310@tg_agency@s", "influxdb server address")
 	flag.Parse()
 	r := &ReadFromFile {
@@ -384,6 +349,14 @@ func main () {
 		read:r,
 		write:w,
 	}
+	logFd, err := os.OpenFile( logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644 )
+	defer logFd.Close()
+	if err == nil {
+		log.Out = logFd
+	} else {
+		log.Infof("open logFilePath err:%s", err.Error())
+	}
+	log.Infoln("Exec start.")
 	for rc:=0; rc < ReadGoroutineNum; rc++ {
 		go lp.read.Read(lp.rc)
 	}
@@ -394,7 +367,6 @@ func main () {
 		go lp.write.Write(lp.wc)
 	}
 
-	// 开启监控进程
 	m := Monitor{
 		startTime:time.Now(),
 		data:SystemInfo{},

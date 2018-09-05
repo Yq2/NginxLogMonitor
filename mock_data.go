@@ -1,7 +1,6 @@
 package main
 import (
 	"fmt"
-	"log"
 	"math/rand"
 	"os"
 	"time"
@@ -13,7 +12,7 @@ func main() {
 	172.0.0.12	-	-	[22/Dec/2017:03:31:35 +0000]	https	"GET /status.html HTTP/1.0"	200	3	"-"	"KeepAliveClient"	"-"	-	0.000
 	*/
 
-	file, err := os.OpenFile("./access.log", os.O_CREATE | os.O_WRONLY | os.O_APPEND, os.ModePerm)
+	file, err := os.OpenFile("./access.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, os.ModePerm)
 	if err != nil {
 		panic(fmt.Sprintf("Open file err: %s", err.Error()))
 	}
@@ -58,7 +57,7 @@ func main() {
 			line := fmt.Sprintf("172.0.0.12 - - [%s +0000] %s \"%s %s HTTP/1.0\" %d %d \"-\" \"KeepAliveClient\" \"-\" - %.3f\n", dateTime, scheme, method, path, code, bytesSend, requestTime)
 			_, err := file.Write([]byte(line))
 			if err != nil {
-				log.Println("writeToFile error:", err)
+				//log.Println("writeToFile error:", err)
 			}
 		}
 		time.Sleep(time.Millisecond * 200)
