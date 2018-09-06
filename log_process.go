@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"github.com/sirupsen/logrus"
 	_ "net/http/pprof"
-	"syscall"
 )
 
 type Reader interface {
@@ -120,36 +119,36 @@ type Monitor struct {
 	WritetpSli []int
 }
 
-func DiskUsage(path string) (disk DiskStatus) {
-	fs := syscall.Statfs_t{}
-	err := syscall.Statfs(path, &fs)
-	if err != nil {
-		return
-	}
-	disk.All = fs.Blocks * uint64(fs.Bsize)
-	disk.Free = fs.Bfree * uint64(fs.Bsize)
-	disk.Used = disk.All - disk.Free
-	return
-}
-
-func MemStat() MemStatus {
-	//自身占用
-	memStat := new(runtime.MemStats)
-	runtime.ReadMemStats(memStat)
-	mem := MemStatus{}
-	mem.Self = memStat.Alloc
-
-	//系统占用,仅linux/mac下有效
-	//system memory usage
-	sysInfo := new(syscall.Sysinfo_t)
-	err := syscall.Sysinfo(sysInfo)
-	if err == nil {
-		mem.All = sysInfo.Totalram * uint64(syscall.Getpagesize())
-		mem.Free = sysInfo.Freeram * uint64(syscall.Getpagesize())
-		mem.Used = mem.All - mem.Free
-	}
-	return mem
-}
+//func DiskUsage(path string) (disk DiskStatus) {
+//	fs := syscall.Statfs_t{}
+//	err := syscall.Statfs(path, &fs)
+//	if err != nil {
+//		return
+//	}
+//	disk.All = fs.Blocks * uint64(fs.Bsize)
+//	disk.Free = fs.Bfree * uint64(fs.Bsize)
+//	disk.Used = disk.All - disk.Free
+//	return
+//}
+//
+//func MemStat() MemStatus {
+//	//自身占用
+//	memStat := new(runtime.MemStats)
+//	runtime.ReadMemStats(memStat)
+//	mem := MemStatus{}
+//	mem.Self = memStat.Alloc
+//
+//	//系统占用,仅linux/mac下有效
+//	//system memory usage
+//	sysInfo := new(syscall.Sysinfo_t)
+//	err := syscall.Sysinfo(sysInfo)
+//	if err == nil {
+//		mem.All = sysInfo.Totalram * uint32(syscall.Getpagesize())
+//		mem.Free = sysInfo.Freeram * uint32(syscall.Getpagesize())
+//		mem.Used = mem.All - mem.Free
+//	}
+//	return mem
+//}
 
 func (m *Monitor) start(lp *LogProcess) {
 
@@ -209,10 +208,10 @@ func (m *Monitor) start(lp *LogProcess) {
 		m.data.GOMAXPROCS = runtime.GOMAXPROCS(0)
 		m.data.HOSTNAME, _ = os.Hostname()
 		m.data.OSVERSION = runtime.Version()
-		disk, _ := json.MarshalIndent(DiskUsage("/"), "","\t")
-		m.data.DiskStatus = string(disk)
-		mem ,_ := json.MarshalIndent(MemStat(), "", "\t")
-		m.data.MemStatus = string(mem)
+		//disk, _ := json.MarshalIndent(DiskUsage("/"), "","\t")
+		//m.data.DiskStatus = string(disk)
+		//mem ,_ := json.MarshalIndent(MemStat(), "", "\t")
+		//m.data.MemStatus = string(mem)
 		m.data.AuthInfo = "github.com/Yq2"
 		m.data.StartRunTime = m.startTime.Format("2006-01-02 15:04:05")
 		m.data.RunTime = time.Now().Sub(m.startTime).String()
