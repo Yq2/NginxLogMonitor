@@ -15,6 +15,8 @@ import (
 	"runtime"
 	"encoding/json"
 	"github.com/sirupsen/logrus"
+	_ "net/http/pprof"
+	"syscall"
 )
 
 type Reader interface {
@@ -47,12 +49,27 @@ type Message struct {
 	UpstreamTime, RequestTime float64
 }
 
+type DiskStatus struct {
+	All  uint64 `json:"全部磁盘空间"`
+	Used uint64 `json:"已经使用磁盘空间"`
+	Free uint64 `json:"空闲磁盘空间"`
+}
+
+type MemStatus struct {
+	All  uint32 `json:"全部内存空间"`
+	Used uint32 `json:"已经被使用内存空间"`
+	Free uint32 `json:"闲置内存空间"`
+	Self uint64 `json:"当前占用空间"`
+}
+
 type SystemInfo struct {
 	GOOS string `json:"运行平台"`
 	GOARCH string `json:"平台架构"`
 	GOMAXPROCS int `json:"CPU数量"`
 	HOSTNAME string `json:"平台名称"`
-
+	OSVERSION string `json:"GO运行版本"`
+	DiskStatus string `json:"磁盘状态"`
+	MemStatus string `json:"内存状态"`
 	StartRunTime string `json:"系统开始运行时间"`
 	RunTime string `json:"系统运行总时间"` //系统运行总时间
 	ErrNum int `json:"发生错误数量"` //错误数
@@ -101,6 +118,37 @@ type Monitor struct {
 	ReadtpSli []int
 	ProcesstpSli []int
 	WritetpSli []int
+}
+
+func DiskUsage(path string) (disk DiskStatus) {
+	fs := syscall.Statfs_t{}
+	err := syscall.Statfs(path, &fs)
+	if err != nil {
+		return
+	}
+	disk.All = fs.Blocks * uint64(fs.Bsize)
+	disk.Free = fs.Bfree * uint64(fs.Bsize)
+	disk.Used = disk.All - disk.Free
+	return
+}
+
+func MemStat() MemStatus {
+	//自身占用
+	memStat := new(runtime.MemStats)
+	runtime.ReadMemStats(memStat)
+	mem := MemStatus{}
+	mem.Self = memStat.Alloc
+
+	//系统占用,仅linux/mac下有效
+	//system memory usage
+	sysInfo := new(syscall.Sysinfo_t)
+	err := syscall.Sysinfo(sysInfo)
+	if err == nil {
+		mem.All = sysInfo.Totalram * uint32(syscall.Getpagesize())
+		mem.Free = sysInfo.Freeram * uint32(syscall.Getpagesize())
+		mem.Used = mem.All - mem.Free
+	}
+	return mem
 }
 
 func (m *Monitor) start(lp *LogProcess) {
@@ -160,6 +208,11 @@ func (m *Monitor) start(lp *LogProcess) {
 		m.data.GOARCH = runtime.GOARCH
 		m.data.GOMAXPROCS = runtime.GOMAXPROCS(0)
 		m.data.HOSTNAME, _ = os.Hostname()
+		m.data.OSVERSION = runtime.Version()
+		disk, _ := json.MarshalIndent(DiskUsage("/"), "","\t")
+		m.data.DiskStatus = string(disk)
+		mem ,_ := json.MarshalIndent(MemStat(), "", "\t")
+		m.data.MemStatus = string(mem)
 		m.data.AuthInfo = "github.com/Yq2"
 		m.data.StartRunTime = m.startTime.Format("2006-01-02 15:04:05")
 		m.data.RunTime = time.Now().Sub(m.startTime).String()
@@ -329,9 +382,15 @@ func initEnv() {
 	log.Out = os.Stdout
 	log.SetLevel( logrus.DebugLevel )
 }
+func pprof() {
+	go func() {
+		http.ListenAndServe("0.0.0.0:8080", nil)
+	}()
+}
 
 func main () {
 	initEnv()
+	pprof()
 	var path, influxDsn,logPath string
 	flag.StringVar(&path, "nginx_log_path", "./access.log","read config file")
 	flag.StringVar(&logPath, "log_path","./log_monitor","log file path")
