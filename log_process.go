@@ -48,19 +48,6 @@ type Message struct {
 	UpstreamTime, RequestTime float64
 }
 
-type DiskStatus struct {
-	All  uint64 `json:"全部磁盘空间"`
-	Used uint64 `json:"已经使用磁盘空间"`
-	Free uint64 `json:"空闲磁盘空间"`
-}
-
-type MemStatus struct {
-	All  uint32 `json:"全部内存空间"`
-	Used uint32 `json:"已经被使用内存空间"`
-	Free uint32 `json:"闲置内存空间"`
-	Self uint64 `json:"当前占用空间"`
-}
-
 type SystemInfo struct {
 	GOOS string `json:"运行平台"`
 	GOARCH string `json:"平台架构"`
@@ -104,10 +91,11 @@ const (
 	ReadChanCap = 100
 	WriteChanCap = 100
 	TypeMonitorChanCap = 50
-	ReadGoroutineNum = 20
-	ProcessGoroutineNum = 20
-	WriteGoroutineNum = 20
+	ReadGoroutineNum = 5
+	ProcessGoroutineNum = 5
+	WriteGoroutineNum = 5
 )
+
 var log = logrus.New()
 var TypeMonitorChan = make(chan byte, TypeMonitorChanCap)
 
@@ -314,7 +302,6 @@ func (w *WriteToInfluxDB) Write(wc chan *Message) {
 			//log.Fatal(err)
 		}
 		TypeMonitorChan <- TypeWriteHandleLine
-
 	}
 }
 
