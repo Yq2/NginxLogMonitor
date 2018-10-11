@@ -368,10 +368,11 @@ func initEnv() {
 	log.Out = os.Stdout
 	log.SetLevel( logrus.DebugLevel )
 }
+
 func pprof() {
-	go func() {
-		http.ListenAndServe("0.0.0.0:8080", nil)
-	}()
+	//go func() {
+	//	http.ListenAndServe("0.0.0.0:8080", nil)
+	//}()
 }
 
 func main () {
